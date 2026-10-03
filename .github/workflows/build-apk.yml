@@ -1,0 +1,187 @@
+# =====================================================================
+# BUILD SNAPGRAB APK DI CLOUD (GitHub Actions), dari snapgrab.zip ASLI
+#
+# 1. Simpan file ini di repo GitHub kamu dengan path:
+#       .github/workflows/build-apk.yml
+# 2. Upload snapgrab.zip (TANPA diubah) ke root repo yang sama.
+# 3. Tunggu tab "Actions" jadi hijau, lalu ambil SnapGrab.apk di "Releases".
+#
+# Kode di dalam zip TIDAK diubah, kecuali kamu sendiri menjalankan workflow
+# ini secara manual (Actions > Run workflow) dan mencentang "fix_permissions".
+# =====================================================================
+name: Build SnapGrab APK
+
+on:
+  push:
+    paths:
+      - "snapgrab.zip"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch:
+    inputs:
+      fix_permissions:
+        description: "Betulkan nama izin di AndroidManifest (android.intent.permission.* jadi android.permission.*) supaya app punya akses internet"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - name: Ambil repo
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Pasang Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Ekstrak snapgrab.zip
+        run: |
+          set -eu
+          if [ ! -f snapgrab.zip ]; then
+            echo "::error::snapgrab.zip belum ada di root repo. Upload dulu file zip-nya."
+            exit 1
+          fi
+          mkdir -p work
+          unzip -q -o snapgrab.zip -d work
+          SETTINGS=$(find work -maxdepth 3 -type f \( -name settings.gradle.kts -o -name settings.gradle \) -not -path "*/__MACOSX/*" | head -n 1)
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::settings.gradle.kts tidak ditemukan di dalam zip."
+            exit 1
+          fi
+          ROOT=$(cd "$(dirname "$SETTINGS")" && pwd)
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
+          echo "Project root: $ROOT"
+
+      - name: Betulkan izin manifest (opsional)
+        if: ${{ inputs.fix_permissions == true }}
+        run: |
+          set -eu
+          M="$ROOT/app/src/main/AndroidManifest.xml"
+          sed -i 's/android\.intent\.permission\./android.permission./g' "$M"
+          grep -n "uses-permission" "$M"
+
+      - name: Pasang debug.keystore (dibutuhkan build.gradle.kts, tidak ada di zip)
+        run: |
+          set -eu
+          # Kunci debug TETAP, jadi semua APK bertanda tangan sama dan bisa saling menimpa.
+          base64 -d > "$ROOT/debug.keystore" <<'KEYSTORE_B64'
+          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
+          KEYSTORE_B64
+          keytool -list -keystore "$ROOT/debug.keystore" -storepass android -alias androiddebugkey > /dev/null || {
+            echo "::error::debug.keystore rusak. Kemungkinan isi file workflow ini terpotong saat di-paste."
+            exit 1
+          }
+
+      - name: Pasang Gradle sesuai gradle-wrapper.properties
+        run: |
+          set -eu
+          URL=$(grep '^distributionUrl=' "$ROOT/gradle/wrapper/gradle-wrapper.properties" | head -n 1 | cut -d= -f2- | tr -d '\\\r')
+          [ -n "$URL" ] || URL="https://services.gradle.org/distributions/gradle-9.3.1-bin.zip"
+          echo "Mengunduh Gradle dari: $URL"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/gradle.zip" "$URL"
+          mkdir -p "$RUNNER_TEMP/gradle-dist"
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP/gradle-dist"
+          GDIR=$(find "$RUNNER_TEMP/gradle-dist" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+          echo "$GDIR/bin" >> "$GITHUB_PATH"
+
+      - name: Terima lisensi Android SDK
+        run: |
+          SDKM=$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+
+      - name: Build APK (debug)
+        run: |
+          set -eu
+          cd "$ROOT"
+          gradle --version
+          gradle assembleDebug --no-daemon --console=plain --stacktrace
+
+      - name: Siapkan SnapGrab.apk
+        run: |
+          set -eu
+          APK=$(find "$ROOT/app/build/outputs/apk/debug" -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "::error::APK tidak ditemukan setelah build."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" dist/SnapGrab.apk
+          ls -lh dist/SnapGrab.apk
+          {
+            echo "### APK selesai dibuat"
+            echo "Ambil **SnapGrab.apk** di tab **Releases** repo ini, atau di bagian **Artifacts** halaman ini."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Simpan sebagai Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: SnapGrab-APK
+          path: dist/SnapGrab.apk
+          retention-days: 30
+
+      - name: Publish ke Releases (biar bisa langsung download .apk)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIXED: ${{ inputs.fix_permissions == true && 'ya' || 'tidak' }}
+        run: |
+          set -eu
+          gh release create "apk-${{ github.run_number }}" dist/SnapGrab.apk \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "SnapGrab APK #${{ github.run_number }}" \
+            --notes "APK debug dibangun otomatis dari snapgrab.zip. Izin manifest dibetulkan: $FIXED."
+            
